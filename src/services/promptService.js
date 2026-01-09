@@ -786,20 +786,32 @@ Comprehensive comma-separated list of ALL tools needed, ordered by:
 
 Example format: "Stand mixer or hand mixer, large mixing bowls, baking sheets, parchment paper, cooling rack, measuring cups and spoons, spatula, small ice cream scoop."
 
-PART 2: RECIPE NOTES (120-160 words)
-4-5 bulleted notes covering:
-- **Technique reminder** - Most critical technique, briefly restated
-- **Storage summary** - Quick reference for storage
-- **Substitution highlight** - One key swap that works
-- **Serving recommendation** - Temperature or timing for best experience
-- **Make-ahead option** - If applicable
+PART 2: RECIPE NOTES (4-6 sentences)
+Write 4-6 concise notes (15-25 words each), covering:
 
-Format as continuous prose paragraph (not bullets in output), with each point flowing into the next naturally.
+1. **Critical Technique** - Most important tip or what to avoid
+2. **Storage** - How to store, container type, and duration
+3. **Substitution** - One key ingredient swap that works well
+4. **Serving** - Best temperature, timing, or pairing suggestion
+5. **Make-Ahead** (optional) - Prep-ahead tip if applicable
+6. **Pro Tip** (optional) - Extra helpful trick
+
+Format: Plain sentences separated by \\n (escaped newline). NO actual line breaks in JSON string.
+
+CRITICAL: In the JSON output, use \\n (backslash-n) not actual newlines!
+
+Correct example:
+"notes": "Don't overmix the cookie dough; it can make your cookies tough.\\nStore assembled Pumpkin Oatmeal Cream Pies in an airtight container in the refrigerator for up to 4 days.\\nIf you're out of brown sugar, you can use granulated sugar with a tablespoon of molasses for a similar flavor and moisture.\\nServe these slightly chilled for the best contrast between the chewy cookie and the cool, creamy filling."
+
+WRONG (will cause JSON error):
+"notes": "First sentence.
+Second sentence.
+Third sentence."
 
 OUTPUT JSON:
 {
   "equipment": "comma, separated, list, of, tools",
-  "notes": "Flowing paragraph with 4-5 key reminders about technique, storage, and serving. Each point transitions smoothly. Keep it practical and concise."
+  "notes": "First tip about technique.\\nSecond tip about storage.\\nThird tip about substitution.\\nFourth tip about serving."
 }
 
 TONE: Practical reference, recipe card style
