@@ -50,7 +50,7 @@ const createJob = asyncHandler(async (req, res) => {
     sections,
     context: {},
     result: null,
-    errors: [],
+    errorLog: [],
     metadata: {
       attemptNumber: 1,
       queuedAt: new Date()
@@ -115,7 +115,7 @@ const getJobStatus = asyncHandler(async (req, res) => {
           { status: value.status, timestamp: value.timestamp }
         ])
       ),
-      errors: job.errors,
+      errorLog: job.errorLog,
       metadata: job.metadata
     }
   });
@@ -161,7 +161,7 @@ const getJobResult = asyncHandler(async (req, res) => {
       message: 'Job processing failed',
       jobId: job.jobId,
       status: job.status,
-      errors: job.errors,
+      errorLog: job.errorLog,
       lastError: job.metadata.lastError
     });
   }

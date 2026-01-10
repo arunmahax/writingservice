@@ -56,7 +56,7 @@ const jobSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed,
     default: null
   },
-  errors: [{
+  errorLog: [{
     section: String,
     message: String,
     timestamp: Date
@@ -92,7 +92,7 @@ jobSchema.methods.updateProgress = function(progress) {
 };
 
 jobSchema.methods.addError = function(section, message) {
-  this.errors.push({
+  this.errorLog.push({
     section,
     message,
     timestamp: new Date()
