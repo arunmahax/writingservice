@@ -1,54 +1,166 @@
-# Recipe Article Generator API
+# Recipe Article Generator API v2.0 🍳
 
-A comprehensive Node.js/Express API for generating SEO-optimized recipe articles using Google Gemini AI with robust retry logic and real-time progress tracking.
+A **production-ready, scalable** Node.js/Express API for generating SEO-optimized recipe articles using Google Gemini AI with job queuing, database persistence, and comprehensive error handling.
 
-## 🚀 Features
+## ⚡ What's New in v2.0
 
-- **AI-Powered Generation**: Uses Google Gemini Pro for high-quality content
-- **Sequential Section Generation**: 17 specialized sections generated in order
-- **Context Accumulation**: Each section builds upon previous content
-- **Retry Logic**: 10 retries with 5-second delays for reliability
-- **Progress Tracking**: Real-time progress updates via API
-- **SEO Validation**: Automatic validation of title and description lengths
-- **Job Management**: Create, track, and retrieve generation jobs
+### 🏗️ Production Architecture
+- ✅ **BullMQ Job Queue** with Redis - Handle thousands of concurrent jobs
+- ✅ **MongoDB Persistence** - No data loss on server restart
+- ✅ **Background Workers** - Async job processing with concurrency control
+- ✅ **Winston Logging** - Structured logging with file rotation
+- ✅ **Comprehensive Error Handling** - Custom error classes and recovery
+- ✅ **Rate Limiting** - Prevent API abuse (10 jobs/15min)
+- ✅ **Health Monitoring** - Real-time system status endpoints
+- ✅ **Graceful Shutdown** - No interrupted jobs
+- ✅ **Horizontal Scaling** - Run multiple API servers and workers
+
+### 🚀 Key Improvements
+
+| Feature | v1.0 (Old) | v2.0 (New) |
+|---------|-----------|-----------|
+| **Storage** | In-memory (volatile) | MongoDB (persistent) ✅ |
+| **Queue System** | None | BullMQ + Redis ✅ |
+| **Concurrent Jobs** | Unlimited (crashes) | Controlled (configurable) ✅ |
+| **Scaling** | Single instance | Multi-instance + workers ✅ |
+| **Error Recovery** | Basic retries | Comprehensive + auto-retry ✅ |
+| **Monitoring** | Basic health | Full dashboard ✅ |
+| **Logs** | Console only | Files + rotation ✅ |
+| **Production Ready** | ❌ No | ✅ **Yes** |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Node.js 18+
+- MongoDB 4.4+
+- Redis 6.0+
+
+### 1. Install Dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure Environment
+
+Copy `.env.production` to `.env` and update:
+
+```env
+GEMINI_API_KEY=your_actual_gemini_api_key
+MONGODB_URI=mongodb://localhost:27017/recipe-generator
+REDIS_HOST=localhost
+REDIS_PORT=6379
+```
+
+### 3. Start Services
+
+**Option A: Development (2 terminals)**
+```bash
+# Terminal 1: Start API server
+npm run dev
+
+# Terminal 2: Start worker
+npm run worker
+```
+
+**Option B: Production (with PM2)**
+```bash
+npm install -g pm2
+pm2 start ecosystem.config.js
+pm2 monit
+```
+
+### 4. Test It
+
+```bash
+# Create a recipe generation job
+curl -X POST http://localhost:3090/api/generate-recipe \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Chocolate Chip Cookies"}'
+
+# Check health
+curl http://localhost:3090/health/detailed
+```
+
+---
+
+## 📋 Features
+
+### AI-Powered Generation
+- **Google Gemini 2.0 Flash** for high-quality content
+- **17 Specialized Sections** generated sequentially
+- **Context Accumulation** - each section builds on previous content
+- **AI Keyword Extraction** - removes marketing fluff from recipe names
+- **SEO Optimization** - validates title/description lengths
+
+### Job Management
+- **Persistent Queue** - jobs survive server restarts
+- **Progress Tracking** - real-time updates (0-100%)
+- **Retry Logic** - 10 attempts per section with exponential backoff
+- **Job History** - query by status, date, or title
+- **Auto-cleanup** - old completed jobs deleted after 7 days
+
+### Scalability
+- **Worker Concurrency** - process multiple jobs simultaneously
+- **Rate Limiting** - 100 API requests/15min, 10 job creations/15min
+- **Horizontal Scaling** - run multiple API instances and workers
+- **Queue Throttling** - max 10 jobs/minute per worker
+
+### Monitoring & Logging
+- **Health Endpoints** - check DB, Redis, Queue, Gemini API status
+- **Structured Logs** - Winston with file rotation (10MB max, 5 files)
+- **Error Tracking** - comprehensive error logging with stack traces
+- **Metrics** - job counts, processing times, success rates
+
+---
 
 ## 📁 Project Structure
 
 ```
 recipe-generator/
 ├── src/
-│   ├── server.js                 # Main Express server
+│   ├── server.v2.js              ✨ Production server with queue
+│   ├── server.js                 📌 Legacy v1.0 (still works)
+│   ├── config/
+│   │   ├── database.js           ✨ MongoDB connection
+│   │   ├── queue.js              ✨ BullMQ + Redis queue
+│   │   ├── logger.js             ✨ Winston logger config
+│   │   └── constants.js          📝 Configuration constants
 │   ├── controllers/
-│   │   ├── jobController.js      # Job creation & status endpoints
-│   │   └── generatorController.js # Article generation logic
-│   ├── services/
-│   │   ├── geminiService.js      # Gemini API wrapper with retry logic
-│   │   └── promptService.js      # All 17 prompt templates
+│   │   ├── jobController.v2.js   ✨ Queue-based job management
+│   │   ├── healthController.js   ✨ Health monitoring endpoints
+│   │   └── generatorController.js 📝 Article generation logic
+│   ├── middleware/
+│   │   ├── errorHandler.js       ✨ Comprehensive error handling
+│   │   └── validation.js         ✨ Input validation
 │   ├── models/
-│   │   └── jobModel.js           # Job structure & validation
+│   │   ├── jobSchema.js          ✨ MongoDB job schema
+│   │   └── jobModel.js           📌 Legacy in-memory model
+│   ├── services/
+│   │   ├── geminiService.js      📝 Gemini API wrapper
+│   │   └── promptService.js      📝 17 prompt templates
 │   ├── utils/
-│   │   ├── retry.js              # Retry logic (10 attempts, 5sec delay)
-│   │   ├── seoValidator.js       # Character limits validation
-│   │   └── contextBuilder.js     # Build context from previous sections
-│   └── config/
-│       └── constants.js          # SEO limits, retry config
-├── .env                          # Environment variables
-├── .env.example                  # Example environment file
-├── package.json
-└── README.md
+│   │   ├── errors.js             ✨ Custom error classes
+│   │   ├── retry.js              📝 Retry logic
+│   │   ├── keywordExtractor.js   📝 AI keyword extraction
+│   │   └── htmlProcessor.js      📝 HTML/JSON processing
+│   └── workers/
+│       └── recipeWorker.js       ✨ Background job processor
+├── logs/                         ✨ Application logs
+├── .env                          📝 Environment config
+├── ecosystem.config.js           ✨ PM2 configuration
+├── QUICK_START.md                ✨ Quick setup guide
+├── PRODUCTION_SETUP.md           ✨ Detailed production docs
+└── README.md                     📝 This file
 ```
 
+**Legend:** ✨ New in v2.0 | 📝 Updated | 📌 Legacy
+
+---
+
 ## 🛠️ Installation
-
-1. **Clone the repository**
-   ```bash
-   cd recipe-generator
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
 
 3. **Configure environment**
    ```bash
