@@ -1,12 +1,10 @@
 /**
- * Health Check and Monitoring Endpoints
+ * Health Check and Monitoring Endpoints - Queue-Only (No Database)
  */
 
 const { asyncHandler } = require('../middleware/errorHandler');
-const { isDatabaseConnected } = require('../config/database');
 const { isRedisConnected, getQueueStats } = require('../config/queue');
-const { isInitialized: isGeminiInitialized } = require('../services/geminiService');
-const Job = require('../models/jobSchema');
+const { isInitialized: isAIInitialized } = require('../services/geminiService');
 
 /**
  * Basic health check
@@ -30,9 +28,8 @@ const healthCheck = asyncHandler(async (req, res) => {
  */
 const detailedHealthCheck = asyncHandler(async (req, res) => {
   const checks = {
-    database: isDatabaseConnected(),
     redis: isRedisConnected(),
-    gemini: isGeminiInitialized(),
+    ai: isAIInitialized(),
     queue: false
   };
   
@@ -47,9 +44,7 @@ const detailedHealthCheck = asyncHandler(async (req, res) => {
   }
   
   // Overall status
-  const allHealthy = Object.values(checks).every(v => 
-    typeof v === 'boolean' ? v : true
-  );
+  const allHealthy = checks.redis && checks.ai && checks.queue;
   
   const statusCode = allHealthy ? 200 : 503;
   
@@ -88,35 +83,30 @@ const queueHealth = asyncHandler(async (req, res) => {
 });
 
 /**
- * Database monitoring
+ * Database monitoring (returns queue stats instead)
  * GET /health/database
  */
 const databaseHealth = asyncHandler(async (req, res) => {
-  if (!isDatabaseConnected()) {
+  // No database, return queue-based job counts
+  const stats = await getQueueStats();
+  
+  if (!stats) {
     return res.status(503).json({
       success: false,
-      message: 'Database not connected'
+      message: 'Queue unavailable'
     });
   }
   
-  const jobCounts = await Job.aggregate([
-    {
-      $group: {
-        _id: '$status',
-        count: { $sum: 1 }
-      }
-    }
-  ]);
-  
-  const counts = jobCounts.reduce((acc, item) => {
-    acc[item._id] = item.count;
-    return acc;
-  }, {});
-  
   res.status(200).json({
     success: true,
-    connected: true,
-    jobCounts: counts,
+    storage: 'redis-queue',
+    jobCounts: {
+      completed: stats.completed || 0,
+      waiting: stats.waiting || 0,
+      active: stats.active || 0,
+      delayed: stats.delayed || 0,
+      failed: stats.failed || 0
+    },
     timestamp: new Date().toISOString()
   });
 });
@@ -126,10 +116,7 @@ const databaseHealth = asyncHandler(async (req, res) => {
  * GET /ready
  */
 const readinessProbe = asyncHandler(async (req, res) => {
-  const ready = 
-    isDatabaseConnected() && 
-    isRedisConnected() && 
-    isGeminiInitialized();
+  const ready = isRedisConnected() && isAIInitialized();
   
   if (ready) {
     res.status(200).json({ ready: true });

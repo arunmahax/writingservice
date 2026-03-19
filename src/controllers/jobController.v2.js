@@ -1,9 +1,9 @@
 /**
- * Updated Job Controller - With Queue Integration
+ * Job Controller - Queue-Only (No Database)
+ * Jobs are stored in Redis via BullMQ
  */
 
-const Job = require('../models/jobSchema');
-const { addJob } = require('../config/queue');
+const { recipeQueue, addJob } = require('../config/queue');
 const { logger } = require('../config/logger');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const { asyncHandler } = require('../middleware/errorHandler');
@@ -33,12 +33,9 @@ const createJob = asyncHandler(async (req, res) => {
     };
   });
   
-  // Create job in database
-  const job = await Job.create({
+  // Job data to store in queue
+  const jobData = {
     jobId,
-    status: JOB_STATUS.PENDING,
-    progress: 0,
-    currentSection: null,
     input: {
       title: input.title,
       image1: input.image1,
@@ -47,38 +44,69 @@ const createJob = asyncHandler(async (req, res) => {
       categories: input.categories,
       authors: input.authors
     },
+    status: JOB_STATUS.PENDING,
+    progress: 0,
+    currentSection: null,
     sections,
     context: {},
     result: null,
     errorLog: [],
     metadata: {
       attemptNumber: 1,
-      queuedAt: new Date()
+      queuedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString()
     }
+  };
+  
+  logger.info('Creating job in queue', { jobId, title: input.title });
+  
+  // Add job to queue - BullMQ stores job data in Redis
+  await addJob(jobId, jobData, {
+    priority: input.priority || 10,
+    jobId // Use jobId as BullMQ job identifier
   });
-  
-  logger.info('Job created in database', { jobId, title: input.title });
-  
-  // Add job to queue
-  await addJob(jobId, { jobId, input }, {
-    priority: input.priority || 10
-  });
-  
-  // Update job status to queued
-  job.status = JOB_STATUS.QUEUED;
-  await job.save();
   
   logger.info('Job queued for processing', { jobId });
   
   return res.status(201).json({
     success: true,
-    jobId: job.jobId,
-    status: job.status,
+    jobId,
+    status: JOB_STATUS.QUEUED,
     message: 'Job created and queued for processing',
-    statusUrl: `/api/job-status/${job.jobId}`,
-    resultUrl: `/api/job-result/${job.jobId}`
+    statusUrl: `/api/job-status/${jobId}`,
+    resultUrl: `/api/job-result/${jobId}`
   });
 });
+
+/**
+ * Get job from queue by jobId
+ */
+async function getJobFromQueue(jobId) {
+  // Get job directly by ID - more efficient than fetching all jobs
+  const job = await recipeQueue.getJob(jobId);
+  
+  if (!job) {
+    return null;
+  }
+  
+  // Map BullMQ states to our status
+  let status = job.data.status || JOB_STATUS.PENDING;
+  if (await job.isCompleted()) {
+    status = job.returnvalue?.status || JOB_STATUS.COMPLETED;
+  } else if (await job.isFailed()) {
+    status = JOB_STATUS.FAILED;
+  } else if (await job.isActive()) {
+    status = JOB_STATUS.GENERATING;
+  } else if (await job.isWaiting() || await job.isDelayed()) {
+    status = JOB_STATUS.QUEUED;
+  }
+  
+  return {
+    ...job.data,
+    status,
+    ...(job.returnvalue || {}) // Merge return value for completed jobs
+  };
+}
 
 /**
  * Get job status
@@ -87,14 +115,15 @@ const createJob = asyncHandler(async (req, res) => {
 const getJobStatus = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   
-  const job = await Job.findOne({ jobId });
+  const job = await getJobFromQueue(jobId);
   
   if (!job) {
     throw new NotFoundError('Job', jobId);
   }
   
   // Calculate progress based on completed sections
-  const completedSections = Object.values(job.sections.toObject()).filter(
+  const sectionsObj = job.sections || {};
+  const completedSections = Object.values(sectionsObj).filter(
     s => s.status === SECTION_STATUS.COMPLETED
   ).length;
   const totalSections = SECTION_ORDER.length;
@@ -107,16 +136,16 @@ const getJobStatus = asyncHandler(async (req, res) => {
       status: job.status,
       progress: job.progress || calculatedProgress,
       currentSection: job.currentSection,
-      createdAt: job.createdAt,
-      updatedAt: job.updatedAt,
+      createdAt: job.metadata?.createdAt,
+      updatedAt: job.metadata?.updatedAt,
       sections: Object.fromEntries(
-        Object.entries(job.sections.toObject()).map(([key, value]) => [
+        Object.entries(sectionsObj).map(([key, value]) => [
           key,
           { status: value.status, timestamp: value.timestamp }
         ])
       ),
-      errorLog: job.errorLog,
-      metadata: job.metadata
+      errorLog: job.errorLog || [],
+      metadata: job.metadata || {}
     }
   });
 });
@@ -128,7 +157,7 @@ const getJobStatus = asyncHandler(async (req, res) => {
 const getJobResult = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   
-  const job = await Job.findOne({ jobId });
+  const job = await getJobFromQueue(jobId);
   
   if (!job) {
     throw new NotFoundError('Job', jobId);
@@ -161,8 +190,8 @@ const getJobResult = asyncHandler(async (req, res) => {
       message: 'Job processing failed',
       jobId: job.jobId,
       status: job.status,
-      errorLog: job.errorLog,
-      lastError: job.metadata.lastError
+      errorLog: job.errorLog || [],
+      lastError: job.metadata?.lastError
     });
   }
   
@@ -172,38 +201,48 @@ const getJobResult = asyncHandler(async (req, res) => {
     jobId: job.jobId,
     status: job.status,
     result: job.result,
-    processingTime: job.metadata.processingTime,
-    completedAt: job.metadata.completedAt
+    processingTime: job.metadata?.processingTime,
+    completedAt: job.metadata?.completedAt
   });
 });
 
 /**
- * List all jobs (paginated)
+ * List all jobs (from queue)
  * GET /api/jobs
  */
 const listJobs = asyncHandler(async (req, res) => {
   const { status, limit = 50, page = 1 } = req.query;
   
-  const query = status ? { status } : {};
-  const skip = (parseInt(page) - 1) * parseInt(limit);
+  // Get jobs from queue
+  const states = status ? [status] : ['completed', 'waiting', 'active', 'delayed', 'failed'];
+  const jobs = await recipeQueue.getJobs(states);
   
-  const [jobs, total] = await Promise.all([
-    Job.find(query)
-      .sort({ createdAt: -1 })
-      .limit(parseInt(limit))
-      .skip(skip)
-      .select('-result -context -sections'),
-    Job.countDocuments(query)
-  ]);
+  // Map to our format
+  const mappedJobs = jobs.map(j => ({
+    jobId: j.data.jobId || j.id,
+    status: j.data.status,
+    progress: j.data.progress || 0,
+    currentSection: j.data.currentSection,
+    createdAt: j.data.metadata?.createdAt,
+    updatedAt: j.data.metadata?.updatedAt,
+    input: {
+      title: j.data.input?.title
+    }
+  }));
+  
+  // Pagination
+  const startIdx = (parseInt(page) - 1) * parseInt(limit);
+  const endIdx = startIdx + parseInt(limit);
+  const paginatedJobs = mappedJobs.slice(startIdx, endIdx);
   
   return res.status(200).json({
     success: true,
-    jobs,
+    jobs: paginatedJobs,
     pagination: {
-      total,
+      total: mappedJobs.length,
       page: parseInt(page),
       limit: parseInt(limit),
-      pages: Math.ceil(total / parseInt(limit))
+      pages: Math.ceil(mappedJobs.length / parseInt(limit))
     }
   });
 });
@@ -215,13 +254,15 @@ const listJobs = asyncHandler(async (req, res) => {
 const deleteJob = asyncHandler(async (req, res) => {
   const { jobId } = req.params;
   
-  const job = await Job.findOne({ jobId });
+  // Find and remove job from queue
+  const jobs = await recipeQueue.getJobs(['completed', 'waiting', 'active', 'delayed', 'failed']);
+  const job = jobs.find(j => j.data.jobId === jobId || j.id === jobId);
   
   if (!job) {
     throw new NotFoundError('Job', jobId);
   }
   
-  await job.deleteOne();
+  await job.remove();
   
   logger.info('Job deleted', { jobId });
   
@@ -233,31 +274,26 @@ const deleteJob = asyncHandler(async (req, res) => {
 });
 
 /**
- * Get job statistics
+ * Get job statistics from queue
  * GET /api/stats
  */
 const getStats = asyncHandler(async (req, res) => {
-  const stats = await Job.aggregate([
-    {
-      $group: {
-        _id: '$status',
-        count: { $sum: 1 }
-      }
-    }
+  const [completed, waiting, active, delayed, failed] = await Promise.all([
+    recipeQueue.getJobCounts('completed'),
+    recipeQueue.getJobCounts('waiting'),
+    recipeQueue.getJobCounts('active'),
+    recipeQueue.getJobCounts('delayed'),
+    recipeQueue.getJobCounts('failed')
   ]);
-  
-  const statusCounts = stats.reduce((acc, stat) => {
-    acc[stat._id] = stat.count;
-    return acc;
-  }, {});
-  
-  const totalJobs = stats.reduce((sum, stat) => sum + stat.count, 0);
   
   return res.status(200).json({
     success: true,
     stats: {
-      total: totalJobs,
-      ...statusCounts
+      total: completed.completed + waiting.waiting + active.active + delayed.delayed + failed.failed,
+      completed: completed.completed,
+      queued: waiting.waiting + delayed.delayed,
+      generating: active.active,
+      failed: failed.failed
     }
   });
 });

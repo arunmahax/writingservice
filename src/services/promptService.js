@@ -899,6 +899,92 @@ Return ONLY a JSON object with this exact structure:
 Return ONLY the JSON, no explanation or markdown.`;
 };
 
+/**
+ * CONSOLIDATED PROMPT: Generate entire recipe article in a single request
+ */
+const getFullArticlePrompt = (input) => {
+  const title = input.title;
+  return `You are an expert recipe content writer and SEO strategist. Generate a COMPLETE recipe article for "${title}" as a single JSON object.
+
+VOICE & TONE: First-person, warm, conversational, self-deprecating humor. Like a friend sharing a recipe.
+AVOID THESE AI WORDS: delve, meticulously, embark, elevate, unlock, realm, tapestry, testament, paradigm
+
+Return a JSON object with ALL of these fields:
+
+{
+  "title": "SEO title with emotional hook + recipe name (55-68 characters). Example: 'The Ultimate [Recipe] You'll Make Again'",
+  "shortTitle": "Concise version for navigation (25-45 characters)",
+  "description": "Meta description starting with 'How to make' + 2-3 key ingredients + benefit (145-158 characters). Example: 'How to make creamy overnight oats with pumpkin spice and maple syrup that taste like fall in a jar.'",
+  "difficulty": "Beginner|Intermediate|Advanced",
+  "cuisine": "Specific cuisine type",
+  "dietary": "Primary dietary category or None",
+  "prepTime": "X Minutes",
+  "cookTime": "X Minutes",
+  "totalTime": "X Minutes",
+  "servings": "X Servings",
+
+  "introduction": "3 short paragraphs in HTML <p> tags (100-120 words TOTAL). Para 1 (30-40w): Quick memory + sensory detail + introduce recipe. Para 2 (40-50w): First attempt story (what went wrong) + humor. Para 3 (30-40w): What recipe means now. Use 2 sensory keywords (warm, cozy, golden, crispy), 1 seasonal keyword, 1 emotional keyword. Use recipe name 2-3 times.",
+
+  "whyLove": "HTML <aside> block with EXACTLY 6 bullet points (8-10 words each). Format: <aside class=\\"note\\"><h2 class=\\"icon-wrapper txt-xl\\"><svg class=\\"icon icon--medium\\"><use href=\\"/assets/drawable/symbols-v4.svg?#note\\"></use></svg><span>Why You'll Love This Recipe</span></h2><ul><li>...</li></ul></aside>. Categories: time/ease, taste, make-ahead, simple ingredients, versatility, guaranteed success.",
+
+  "ingredientsJson": [
+    {
+      "group": "Descriptive Group Name (e.g., Base Ingredients, Flavor Builders, Seasonings, Toppings)",
+      "items": ["1 cup ingredient, preparation detail", "2 tbsp ingredient"]
+    }
+  ],
+  "ingredientsHtml": "HTML with <h2 id='paragraph-4' class='txt-xxl'>Ingredients for ${title}</h2> followed by <ul><li><strong>Ingredient:</strong> 15-20 word commentary on function, why it matters, and a tip.</li></ul>. MUST have 12-16 total ingredients across all groups.",
+
+  "instructionsJson": [
+    {
+      "step": 1,
+      "title": "2-3 word action title (e.g., Cream Butter)",
+      "content": "30-40 word conversational instruction with what to do, how to know it's done, and one tip."
+    }
+  ],
+  "instructionsHtml": "HTML with <h2 id='paragraph-6' class='txt-xxl'>How to Make ${title}</h2> followed by <dl><dt><strong>Step Title:</strong></dt><dd>Instructions</dd></dl>. MUST have 6-7 steps.",
+
+  "criticalTips": "HTML <aside> with 3 'You Must Know' tips (15-20 words each). Format: <aside class=\\"note\\"><h2 class=\\"icon-wrapper txt-xl\\"><svg class=\\"icon icon--medium\\"><use href=\\"/assets/drawable/symbols-v4.svg?#note\\"></use></svg><span>You Must Know</span></h2><ul><li>Tip with consequence and personal note</li></ul></aside>",
+
+  "reflection": "Single HTML <p> tag (90-115 words). Start with 'There's something so [emotion] about [sensory moment]'. Describe messy reality, contrast with positive experience, emotional payoff.",
+
+  "storage": "HTML with <h2 id=\\"paragraph-11\\" class=\\"txt-xxl\\">How to Store ${title}</h2> + 2-3 <p> tags (90-110 words total). Cover container/temp/duration, make-ahead tips, reheating. Use keywords: store, refrigerate, airtight, fresh.",
+
+  "serving": "HTML with <h2 id=\\"paragraph-15\\" class=\\"txt-xxl\\">What to Serve with ${title}</h2> + 2 <p> tags (80-100 words). Serving ideas + personal favorite. Use keywords: serve, pair, perfect, enjoy.",
+
+  "proTips": "HTML <aside> with 3 pro tips (12-15 words each). Format: <aside class=\\"note\\"><h2 class=\\"icon-wrapper txt-xl\\"><svg class=\\"icon icon--medium\\"><use href=\\"/assets/drawable/symbols-v4.svg?#note\\"></use></svg><span>Pro Tips</span></h2><ul><li>Advanced technique + benefit</li></ul></aside>",
+
+  "faqsJson": [
+    {"question": "Natural language question (10-18 words)?", "answer": "Direct answer with explanation and tip (30-40 words)."}
+  ],
+  "faqsHtml": "HTML with <h2 id=\\"faqs\\" class=\\"txt-xxl\\">Frequently Asked Questions</h2><dl><dt id=\\"faq-1\\">→ Question?</dt><dd><p>Answer</p></dd></dl>. MUST have exactly 5 FAQs. Use arrow → before each question.",
+
+  "equipment": "Comma-separated list of all tools needed, ordered large to small. Example: 'Stand mixer, large mixing bowls, baking sheets, parchment paper, cooling rack, measuring cups, spatula'",
+  "notes": "4-6 concise notes (15-25 words each) separated by \\n. Cover: critical technique, storage tip, substitution, serving suggestion. Example: 'Don't overmix the dough; tough cookies result.\\nStore in airtight container for up to 4 days.'",
+
+  "nutrition_calories": "Realistic per-serving estimate (e.g., '320')",
+  "nutrition_totalFat": "e.g., '16g'",
+  "nutrition_totalCarbs": "e.g., '42g'",
+  "nutrition_protein": "e.g., '4g'",
+  "allergies": "Comma-separated allergens, capitalized (e.g., 'Dairy, Eggs, Gluten')",
+  "tags": "12-18 lowercase comma-separated tags covering: main ingredients, cooking method, occasion, dietary descriptors, course type, emotion words (e.g., 'chicken pasta,tuscan,creamy,garlic,weeknight dinner,comfort food,italian')"
+}
+
+CRITICAL REQUIREMENTS:
+1. All HTML must use proper tags, close all tags, NO markdown fences
+2. SVG hrefs must be: href="/assets/drawable/symbols-v4.svg?#note" (with ? before #)
+3. Each HTML <p> must be 40-150 words for SEO
+4. ingredientsJson MUST have 12-16 ingredients total across groups
+5. instructionsJson MUST have 6-7 steps
+6. faqsJson MUST have exactly 5 questions
+7. Use recipe name naturally 5-8 times throughout all content
+8. Include sensory keywords: warm, cozy, golden, crispy, buttery, tender, aromatic
+9. Include emotional keywords: nostalgic, comfort, satisfy, perfect
+10. Title 55-68 chars, description 145-158 chars (STRICT character counts)
+
+Return ONLY the JSON object. No markdown code fences, no explanation.`;
+};
+
 module.exports = {
   getTitleMetadataPrompt,
   getIntroductionPrompt,
@@ -917,5 +1003,6 @@ module.exports = {
   getFaqsPrompt,
   getEquipmentNotesPrompt,
   getNutritionTagsPrompt,
-  getCategorySelectionPrompt
+  getCategorySelectionPrompt,
+  getFullArticlePrompt
 };

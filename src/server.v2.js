@@ -1,6 +1,6 @@
 /**
  * Recipe Article Generator - Production Server
- * v2.0.0 - Scalable Architecture with Queue, Database, and Error Handling
+ * v2.0.0 - Scalable Architecture with Queue and Error Handling (Queue-Only, No Database)
  */
 
 require('dotenv').config();
@@ -12,7 +12,6 @@ const rateLimit = require('express-rate-limit');
 
 // Configuration
 const { logger } = require('./config/logger');
-const { connectDatabase, disconnectDatabase } = require('./config/database');
 const { closeQueue, cleanQueue } = require('./config/queue');
 const { initializeGemini, isInitialized } = require('./services/geminiService');
 
@@ -27,6 +26,7 @@ const {
   validateJobId, 
   handleValidationErrors 
 } = require('./middleware/validation');
+const { apiKeyAuth } = require('./middleware/apiKeyAuth');
 
 // Initialize Express app
 const app = express();
@@ -70,6 +70,9 @@ const limiter = rateLimit({
 
 app.use('/api/', limiter);
 
+// API key authentication
+app.use('/api/', apiKeyAuth);
+
 // Stricter rate limit for job creation
 const createJobLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -99,11 +102,11 @@ app.get('/', (req, res) => {
   res.status(200).json({
     name: 'Recipe Article Generator API',
     version: '2.0.0',
-    description: 'Scalable recipe article generation with Google Gemini AI',
+    description: 'Scalable recipe article generation with OpenRouter AI (Claude Sonnet)',
     architecture: {
-      queue: 'BullMQ with Redis',
-      database: 'MongoDB',
-      ai: 'Google Gemini 2.0 Flash',
+      queue: 'BullMQ with Redis (Queue-Only Storage)',
+      database: 'None (Jobs stored in Redis via BullMQ)',
+      ai: 'OpenRouter (Claude Sonnet)',
       logging: 'Winston'
     },
     endpoints: {
@@ -186,15 +189,11 @@ app.use(errorHandler);
 
 const startServer = async () => {
   try {
-    // Connect to MongoDB
-    logger.info('Connecting to MongoDB...');
-    await connectDatabase();
-    
-    // Initialize Gemini AI
-    logger.info('Initializing Gemini AI...');
+    // Initialize AI (OpenRouter)
+    logger.info('Initializing OpenRouter AI...');
     const geminiInit = initializeGemini();
     if (!geminiInit) {
-      logger.warn('⚠️  Gemini AI not initialized. Check GEMINI_API_KEY in .env');
+      logger.warn('⚠️  AI not initialized. Check OPENROUTER_API_KEY in .env');
     }
     
     // Clean old queue jobs periodically (every hour)
@@ -217,9 +216,9 @@ const startServer = async () => {
       logger.info(`📊 Detailed health: http://localhost:${PORT}/health/detailed`);
       logger.info('='.repeat(50));
       logger.info('🏗️  Architecture:');
-      logger.info(`   • Database: MongoDB (${isDatabaseConnected() ? '✅' : '❌'})`);
-      logger.info(`   • Queue: Redis + BullMQ (Check /health/queue)`);
-      logger.info(`   • AI: Gemini 2.0 Flash (${isInitialized() ? '✅' : '❌'})`);
+      logger.info(`   • Storage: Redis (Queue-Only) ✅`);
+      logger.info(`   • Queue: BullMQ (Check /health/queue)`);
+      logger.info(`   • AI: OpenRouter Claude Sonnet (${isInitialized() ? '✅' : '❌'})`);
       logger.info(`   • Logging: Winston`);
       logger.info('='.repeat(50));
       logger.info('📋 Available Endpoints:');
@@ -233,8 +232,8 @@ const startServer = async () => {
       logger.info('');
       
       if (!isInitialized()) {
-        logger.warn('⚠️  Warning: Gemini AI not initialized.');
-        logger.warn('   Please set GEMINI_API_KEY in your .env file.');
+        logger.warn('⚠️  Warning: AI not initialized.');
+        logger.warn('   Please set OPENROUTER_API_KEY in your .env file.');
       }
     });
     
@@ -250,10 +249,6 @@ const startServer = async () => {
           // Close queue connections
           logger.info('Closing queue connections...');
           await closeQueue();
-          
-          // Disconnect from database
-          logger.info('Disconnecting from database...');
-          await disconnectDatabase();
           
           logger.info('✅ Graceful shutdown completed');
           process.exit(0);
@@ -290,9 +285,6 @@ const startServer = async () => {
     process.exit(1);
   }
 };
-
-// Import database connection check
-const { isDatabaseConnected } = require('./config/database');
 
 // Start the server
 startServer();

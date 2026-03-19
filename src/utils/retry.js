@@ -118,15 +118,19 @@ const withRetry = async (fn, options = {}) => {
  * @returns {Promise<any>} - The result of the function
  */
 const withTimeout = async (fn, timeout = RETRY_CONFIG.requestTimeout) => {
-  return Promise.race([
-    fn(),
-    new Promise((_, reject) => 
-      setTimeout(() => reject({ 
-        type: ERROR_TYPES.TIMEOUT_ERROR, 
-        message: `Operation timed out after ${timeout}ms` 
-      }), timeout)
-    )
-  ]);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const result = await fn(controller.signal);
+    return result;
+  } catch (error) {
+    if (controller.signal.aborted) {
+      throw { type: ERROR_TYPES.TIMEOUT_ERROR, message: `Operation timed out after ${timeout}ms` };
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 };
 
 module.exports = {

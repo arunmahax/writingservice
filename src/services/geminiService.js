@@ -1,37 +1,39 @@
 /**
- * Gemini Service - Google Gemini API wrapper with retry logic
+ * AI Service - OpenRouter API wrapper (Claude Sonnet) with retry logic
  */
 
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GEMINI_CONFIG, RETRY_CONFIG } = require('../config/constants');
+const OpenAI = require('openai');
+const { AI_CONFIG, RETRY_CONFIG } = require('../config/constants');
 const { withRetry, withTimeout } = require('../utils/retry');
 const { checkNeedsRegeneration, logValidation } = require('../utils/seoValidator');
 const { buildContextString, updateContext } = require('../utils/contextBuilder');
 const { processHtml, processJsonWithHtml, removeMarkdownFences } = require('../utils/htmlProcessor');
 const prompts = require('./promptService');
 
-// Initialize Gemini AI
-let genAI = null;
-let model = null;
+// Initialize OpenRouter client
+let client = null;
 
 /**
- * Initialize the Gemini client
+ * Initialize the OpenRouter client
  */
 const initializeGemini = () => {
-  const apiKey = process.env.GEMINI_API_KEY;
+  const apiKey = process.env.OPENROUTER_API_KEY;
   
-  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
-    console.warn('⚠️ Warning: GEMINI_API_KEY not configured. Please set it in your .env file.');
+  if (!apiKey || apiKey === 'your_openrouter_api_key_here') {
+    console.warn('⚠️ Warning: OPENROUTER_API_KEY not configured. Please set it in your .env file.');
     return false;
   }
   
-  genAI = new GoogleGenerativeAI(apiKey);
-  model = genAI.getGenerativeModel({ 
-    model: GEMINI_CONFIG.model,
-    generationConfig: GEMINI_CONFIG.generationConfig
+  client = new OpenAI({
+    baseURL: AI_CONFIG.baseURL,
+    apiKey: apiKey,
+    defaultHeaders: {
+      'HTTP-Referer': process.env.APP_URL || 'http://localhost:3090',
+      'X-Title': 'Recipe Article Generator',
+    },
   });
   
-  console.log('✅ Gemini AI initialized successfully');
+  console.log(`✅ OpenRouter AI initialized successfully (model: ${AI_CONFIG.model})`);
   return true;
 };
 
@@ -51,25 +53,35 @@ const cleanJsonResponse = (text) => {
 };
 
 /**
- * Generate content using Gemini API
+ * Generate content using OpenRouter API (Claude Sonnet)
  * @param {string} prompt - The prompt to send
  * @param {string} sectionName - Name of the section being generated
  * @param {boolean} expectJson - Whether to expect JSON response
  * @returns {Promise<any>} - Generated content
  */
-const generateContent = async (prompt, sectionName, expectJson = false) => {
-  if (!model) {
-    throw new Error('Gemini AI not initialized. Please set GEMINI_API_KEY in .env file.');
+const generateContent = async (prompt, sectionName, expectJson = false, customTimeout = null) => {
+  if (!client) {
+    throw new Error('OpenRouter AI not initialized. Please set OPENROUTER_API_KEY in .env file.');
   }
+  
+  const timeout = customTimeout || RETRY_CONFIG.requestTimeout;
   
   const result = await withRetry(
     async () => {
       const response = await withTimeout(
-        async () => model.generateContent(prompt),
-        RETRY_CONFIG.requestTimeout
+        async (signal) => client.chat.completions.create({
+          model: AI_CONFIG.model,
+          temperature: AI_CONFIG.temperature,
+          top_p: AI_CONFIG.topP,
+          max_tokens: AI_CONFIG.maxTokens,
+          messages: [
+            { role: 'user', content: prompt }
+          ],
+        }, { signal }),
+        timeout
       );
       
-      const text = response.response.text();
+      const text = response.choices[0]?.message?.content || '';
       
       if (expectJson) {
         const cleaned = cleanJsonResponse(text);
@@ -289,10 +301,22 @@ const selectBestCategory = async (recipeTitle, categories) => {
 };
 
 /**
- * Check if Gemini is initialized
+ * Check if OpenRouter client is initialized
  */
 const isInitialized = () => {
-  return model !== null;
+  return client !== null;
+};
+
+/**
+ * Generate the entire recipe article in a single API call
+ * @param {Object} input - The recipe input (title, images, etc.)
+ * @returns {Promise<Object>} - Complete article data
+ */
+const generateFullArticle = async (input) => {
+  const prompt = prompts.getFullArticlePrompt(input);
+  // Use 120s timeout for full article (much larger response than individual sections)
+  const data = await generateContent(prompt, 'Full Article', true, 120000);
+  return data;
 };
 
 module.exports = {
@@ -316,5 +340,6 @@ module.exports = {
   generateFaqs,
   generateEquipmentNotes,
   generateNutritionTags,
-  selectBestCategory
+  selectBestCategory,
+  generateFullArticle
 };

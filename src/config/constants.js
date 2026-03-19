@@ -91,15 +91,13 @@ const ERROR_TYPES = {
   FATAL_ERROR: 'FATAL_ERROR'
 };
 
-// Gemini Model Configuration
-const GEMINI_CONFIG = {
-  model: 'gemini-2.5-flash',
-  generationConfig: {
-    temperature: 0.7,
-    topK: 40,
-    topP: 0.95,
-    maxOutputTokens: 8192,
-  }
+// OpenRouter / Claude Model Configuration
+const AI_CONFIG = {
+  model: process.env.AI_MODEL || 'anthropic/claude-sonnet-4',
+  baseURL: 'https://openrouter.ai/api/v1',
+  temperature: 0.7,
+  topP: 0.95,
+  maxTokens: 16384,
 };
 
 module.exports = {
@@ -110,5 +108,5 @@ module.exports = {
   JOB_STATUS,
   SECTION_STATUS,
   ERROR_TYPES,
-  GEMINI_CONFIG
+  AI_CONFIG
 };

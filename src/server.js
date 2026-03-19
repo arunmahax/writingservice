@@ -2,7 +2,7 @@
  * Recipe Article Generator - Express Server
  * 
  * A comprehensive API for generating SEO-optimized recipe articles
- * using Google Gemini AI with retry logic and progress tracking.
+ * using OpenRouter AI (Claude Sonnet) with retry logic and progress tracking.
  */
 
 require('dotenv').config();
@@ -28,7 +28,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Initialize Gemini AI
+// Initialize AI (OpenRouter)
 initializeGemini();
 
 // ============================================
@@ -44,7 +44,8 @@ app.get('/health', (req, res) => {
     status: 'healthy',
     timestamp: new Date().toISOString(),
     geminiInitialized: isInitialized(),
-    version: '1.0.0'
+    version: '1.0.0',
+    ai: 'OpenRouter (Claude Sonnet)'
   });
 });
 
@@ -56,10 +57,10 @@ app.get('/', (req, res) => {
   res.status(200).json({
     name: 'Recipe Article Generator API',
     version: '1.0.0',
-    description: 'Generate SEO-optimized recipe articles using Google Gemini AI',
+    description: 'Generate SEO-optimized recipe articles using OpenRouter AI (Claude Sonnet)',
     endpoints: {
       health: 'GET /health',
-      createJob: 'POST /api/generate-recipe',
+      createJob: 'POST /api/generate-recipe OR POST /api/recipe/generate',
       jobStatus: 'GET /api/job-status/:jobId',
       jobResult: 'GET /api/job-result/:jobId',
       listJobs: 'GET /api/jobs',
@@ -68,7 +69,7 @@ app.get('/', (req, res) => {
     documentation: {
       createJob: {
         method: 'POST',
-        path: '/api/generate-recipe',
+        path: '/api/generate-recipe OR /api/recipe/generate',
         body: {
           title: 'string (required)',
           image1: 'string (optional)',
@@ -85,8 +86,10 @@ app.get('/', (req, res) => {
 /**
  * Create Recipe Generation Job
  * POST /api/generate-recipe
+ * POST /api/recipe/generate (alias)
  */
 app.post('/api/generate-recipe', jobController.createJob);
+app.post('/api/recipe/generate', jobController.createJob);
 
 /**
  * Get Job Status
@@ -124,7 +127,7 @@ app.use((req, res) => {
     message: `Route ${req.method} ${req.path} not found`,
     availableEndpoints: {
       health: 'GET /health',
-      createJob: 'POST /api/generate-recipe',
+      createJob: 'POST /api/generate-recipe OR POST /api/recipe/generate',
       jobStatus: 'GET /api/job-status/:jobId',
       jobResult: 'GET /api/job-result/:jobId'
     }
@@ -157,6 +160,7 @@ app.listen(PORT, () => {
   console.log('====================================');
   console.log('📋 Available Endpoints:');
   console.log(`   POST   /api/generate-recipe`);
+  console.log(`   POST   /api/recipe/generate (alias)`);
   console.log(`   GET    /api/job-status/:jobId`);
   console.log(`   GET    /api/job-result/:jobId`);
   console.log(`   GET    /api/jobs`);
@@ -164,8 +168,8 @@ app.listen(PORT, () => {
   console.log('====================================\n');
   
   if (!isInitialized()) {
-    console.log('⚠️  Warning: Gemini AI not initialized.');
-    console.log('   Please set GEMINI_API_KEY in your .env file.\n');
+    console.log('⚠️  Warning: AI not initialized.');
+    console.log('   Please set OPENROUTER_API_KEY in your .env file.\n');
   }
 });
 

@@ -4,8 +4,7 @@
 
 const jobModel = require('../models/jobModel');
 const geminiService = require('../services/geminiService');
-const { createInitialContext, updateContext } = require('../utils/contextBuilder');
-const { extractRecipeKeywords } = require('../utils/keywordExtractor');
+const { createInitialContext } = require('../utils/contextBuilder');
 const { JOB_STATUS, SECTION_STATUS, SECTION_ORDER } = require('../config/constants');
 const { 
   validateArticleOutput, 
@@ -15,7 +14,7 @@ const {
 } = require('../utils/outputValidator');
 
 /**
- * Start the recipe generation process
+ * Start the recipe generation process (single API call)
  * @param {string} jobId - The job ID to process
  */
 const startGeneration = async (jobId) => {
@@ -29,45 +28,134 @@ const startGeneration = async (jobId) => {
   // Update job status to generating
   jobModel.updateJobStatus(jobId, JOB_STATUS.GENERATING);
   
-  // Extract recipe keywords from full title
-  console.log(`🔑 Extracting recipe keywords from: "${job.input.title}"`);
-  const recipeKeywords = await extractRecipeKeywords(job.input.title);
-  console.log(`✅ Extracted keywords: "${recipeKeywords}"`);
-  
   // Create initial context
   let context = createInitialContext(job.input);
-  context.recipeKeywords = recipeKeywords; // Add keywords to context
   jobModel.updateContext(jobId, context);
   
   try {
-    // Generate each section sequentially
+    // Mark all sections as generating
     for (const sectionKey of SECTION_ORDER) {
-      try {
-        console.log(`\n📝 Generating section: ${sectionKey}`);
-        
-        // Mark section as generating
-        jobModel.updateSection(jobId, sectionKey, SECTION_STATUS.GENERATING);
-        
-        // Generate section content
-        const data = await generateSection(sectionKey, job.input, context);
-        
-        // Update context with new data
-        context = updateContext(context, sectionKey, data);
-        jobModel.updateContext(jobId, context);
-        
-        // Mark section as completed
-        jobModel.updateSection(jobId, sectionKey, SECTION_STATUS.COMPLETED, data);
-        
-        console.log(`✅ Completed section: ${sectionKey}`);
-        
-      } catch (sectionError) {
-        console.error(`❌ Failed section ${sectionKey}:`, sectionError.message);
-        
-        // Mark section as failed but continue to next section
-        jobModel.updateSection(jobId, sectionKey, SECTION_STATUS.FAILED, null, sectionError.message);
-        jobModel.addError(jobId, sectionKey, sectionError.message);
-      }
+      jobModel.updateSection(jobId, sectionKey, SECTION_STATUS.GENERATING);
     }
+
+    // Single API call to generate the entire article
+    console.log(`\n📝 Generating full article in single request...`);
+    const data = await geminiService.generateFullArticle(job.input);
+    console.log(`✅ Full article generated successfully`);
+
+    // Map the single response into context (same structure as before)
+    // Title & Metadata
+    context.title = data.title;
+    context.shortTitle = data.shortTitle;
+    context.description = data.description;
+    context.difficulty = data.difficulty;
+    context.cuisine = data.cuisine;
+    context.dietary = data.dietary;
+    context.prepTime = data.prepTime;
+    context.cookTime = data.cookTime;
+    context.totalTime = data.totalTime;
+    context.servings = data.servings;
+    context.recipeKeywords = data.title;
+    jobModel.updateSection(jobId, 'title_metadata', SECTION_STATUS.COMPLETED, data);
+    console.log(`✅ Mapped section: title_metadata`);
+
+    // Introduction
+    context.introduction = data.introduction;
+    jobModel.updateSection(jobId, 'introduction', SECTION_STATUS.COMPLETED, data.introduction);
+    console.log(`✅ Mapped section: introduction`);
+
+    // Why Love
+    context.whyLove = data.whyLove;
+    jobModel.updateSection(jobId, 'why_love', SECTION_STATUS.COMPLETED, data.whyLove);
+    console.log(`✅ Mapped section: why_love`);
+
+    // Ingredients
+    context.ingredients = {
+      json: data.ingredientsJson,
+      html: data.ingredientsHtml
+    };
+    jobModel.updateSection(jobId, 'ingredients', SECTION_STATUS.COMPLETED, {
+      ingredientsJson: data.ingredientsJson,
+      ingredientsHtml: data.ingredientsHtml
+    });
+    console.log(`✅ Mapped section: ingredients`);
+
+    // Instructions
+    context.instructions = {
+      json: data.instructionsJson,
+      html: data.instructionsHtml
+    };
+    jobModel.updateSection(jobId, 'instructions', SECTION_STATUS.COMPLETED, {
+      instructionsJson: data.instructionsJson,
+      instructionsHtml: data.instructionsHtml
+    });
+    console.log(`✅ Mapped section: instructions`);
+
+    // Critical Tips
+    context.criticalTips = data.criticalTips;
+    jobModel.updateSection(jobId, 'critical_tips', SECTION_STATUS.COMPLETED, data.criticalTips);
+    console.log(`✅ Mapped section: critical_tips`);
+
+    // Reflection
+    context.reflection = data.reflection;
+    jobModel.updateSection(jobId, 'reflection', SECTION_STATUS.COMPLETED, data.reflection);
+    console.log(`✅ Mapped section: reflection`);
+
+    // Storage
+    context.storage = data.storage;
+    jobModel.updateSection(jobId, 'storage', SECTION_STATUS.COMPLETED, data.storage);
+    console.log(`✅ Mapped section: storage`);
+
+    // Serving
+    context.serving = data.serving;
+    jobModel.updateSection(jobId, 'serving', SECTION_STATUS.COMPLETED, data.serving);
+    console.log(`✅ Mapped section: serving`);
+
+    // Pro Tips
+    context.proTips = data.proTips;
+    jobModel.updateSection(jobId, 'pro_tips', SECTION_STATUS.COMPLETED, data.proTips);
+    console.log(`✅ Mapped section: pro_tips`);
+
+    // FAQs
+    context.faqs = {
+      json: data.faqsJson,
+      html: data.faqsHtml
+    };
+    jobModel.updateSection(jobId, 'faqs', SECTION_STATUS.COMPLETED, {
+      faqsJson: data.faqsJson,
+      faqsHtml: data.faqsHtml
+    });
+    console.log(`✅ Mapped section: faqs`);
+
+    // Equipment & Notes
+    context.equipment = data.equipment;
+    context.notes = data.notes;
+    jobModel.updateSection(jobId, 'equipment_notes', SECTION_STATUS.COMPLETED, {
+      equipment: data.equipment,
+      notes: data.notes
+    });
+    console.log(`✅ Mapped section: equipment_notes`);
+
+    // Nutrition & Tags
+    context.nutrition = {
+      calories: data.nutrition_calories,
+      totalFat: data.nutrition_totalFat,
+      totalCarbs: data.nutrition_totalCarbs,
+      protein: data.nutrition_protein
+    };
+    context.allergies = data.allergies;
+    context.tags = data.tags;
+    jobModel.updateSection(jobId, 'nutrition_tags', SECTION_STATUS.COMPLETED, {
+      nutrition_calories: data.nutrition_calories,
+      nutrition_totalFat: data.nutrition_totalFat,
+      nutrition_totalCarbs: data.nutrition_totalCarbs,
+      nutrition_protein: data.nutrition_protein,
+      allergies: data.allergies,
+      tags: data.tags
+    });
+    console.log(`✅ Mapped section: nutrition_tags`);
+
+    jobModel.updateContext(jobId, context);
     
     // Assemble final result
     console.log(`\n🔨 Assembling final result for job ${jobId}`);

@@ -1,7 +1,7 @@
 {
   "name": "recipe-generator",
   "version": "1.0.0",
-  "description": "Recipe Article Generator API with Google Gemini AI",
+  "description": "Recipe Article Generator API with OpenRouter AI (Claude Sonnet)",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.v2.js",
@@ -10,19 +10,20 @@
     "dev:v1": "nodemon src/server.js",
     "worker": "nodemon src/workers/recipeWorker.js",
     "worker:prod": "node src/workers/recipeWorker.js",
+    "dev:all": "concurrently \"npm run dev\" \"npm run worker\" --names \"API,WORKER\" --prefix-colors \"cyan,magenta\"",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
     "recipe",
     "generator",
-    "gemini",
+    "openrouter",
+    "claude",
     "ai",
     "express"
   ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@google/generative-ai": "^0.21.0",
     "bullmq": "^5.66.4",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
@@ -33,10 +34,12 @@
     "ioredis": "^5.9.1",
     "joi": "^18.0.2",
     "mongoose": "^9.1.2",
+    "openai": "^4.104.0",
     "uuid": "^10.0.0",
     "winston": "^3.19.0"
   },
   "devDependencies": {
+    "concurrently": "^9.2.1",
     "nodemon": "^3.1.7"
   }
 }

@@ -1,333 +1,143 @@
 /**
- * Job Model - In-memory job storage and management
+ * Simple in-memory job storage for queue-only architecture
+ * Jobs are stored in Redis via BullMQ, but we need temporary runtime storage
+ * for the generation process
  */
 
-const { JOB_STATUS, SECTION_STATUS, SECTIONS, SECTION_ORDER } = require('../config/constants');
+const { JOB_STATUS, SECTION_STATUS } = require('../config/constants');
 
-// In-memory storage for jobs
-const jobStore = new Map();
+// In-memory store for jobs being processed
+const jobs = new Map();
 
 /**
- * Generate a unique job ID
- * @returns {string} - Unique job ID
+ * Create or update a job in memory
  */
-const generateJobId = () => {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 15);
-  return `job_${timestamp}_${random}`;
-};
-
-/**
- * Create a new job
- * @param {Object} input - Input data for the job
- * @returns {Object} - The created job
- */
-const createJob = (input) => {
-  const jobId = generateJobId();
-  const now = new Date().toISOString();
-  
-  // Initialize sections
-  const sections = {};
-  SECTION_ORDER.forEach(sectionKey => {
-    sections[sectionKey] = {
-      status: SECTION_STATUS.PENDING,
-      data: null,
-      timestamp: null,
-      retries: 0,
-      error: null
-    };
+const createJob = (jobData) => {
+  jobs.set(jobData.jobId, {
+    ...jobData,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   });
-  
-  const job = {
-    jobId,
-    status: JOB_STATUS.PENDING,
-    progress: 0,
-    currentSection: null,
-    createdAt: now,
-    updatedAt: now,
-    completedAt: null,
-    input: {
-      title: input.title,
-      image1: input.image1,
-      image2: input.image2,
-      featuredImage: input.featuredImage,
-      categories: input.categories,
-      authors: input.authors
-    },
-    sections,
-    context: {},
-    result: null,
-    errors: []
-  };
-  
-  jobStore.set(jobId, job);
-  return job;
+  return jobs.get(jobData.jobId);
 };
 
 /**
  * Get a job by ID
- * @param {string} jobId - The job ID
- * @returns {Object|null} - The job or null if not found
  */
 const getJob = (jobId) => {
-  return jobStore.get(jobId) || null;
+  return jobs.get(jobId);
 };
 
 /**
  * Update job status
- * @param {string} jobId - The job ID
- * @param {string} status - New status
- * @param {Object} updates - Additional updates
- * @returns {Object|null} - Updated job or null
  */
-const updateJobStatus = (jobId, status, updates = {}) => {
-  const job = jobStore.get(jobId);
-  if (!job) return null;
-  
-  job.status = status;
-  job.updatedAt = new Date().toISOString();
-  
-  Object.assign(job, updates);
-  
-  jobStore.set(jobId, job);
-  return job;
-};
-
-/**
- * Update a section's status and data
- * @param {string} jobId - The job ID
- * @param {string} sectionKey - The section key
- * @param {string} status - Section status
- * @param {any} data - Section data
- * @param {string} error - Error message if failed
- * @returns {Object|null} - Updated job or null
- */
-const updateSection = (jobId, sectionKey, status, data = null, error = null) => {
-  const job = jobStore.get(jobId);
-  if (!job || !job.sections[sectionKey]) return null;
-  
-  const section = job.sections[sectionKey];
-  section.status = status;
-  section.timestamp = new Date().toISOString();
-  
-  if (data !== null) {
-    section.data = data;
+const updateJobStatus = (jobId, status) => {
+  const job = jobs.get(jobId);
+  if (job) {
+    job.status = status;
+    job.updatedAt = new Date().toISOString();
   }
-  
-  if (error) {
-    section.error = error;
-    section.retries = (section.retries || 0) + 1;
-  }
-  
-  // Update current section
-  if (status === SECTION_STATUS.GENERATING) {
-    job.currentSection = SECTIONS[sectionKey].name;
-  }
-  
-  // Calculate progress
-  job.progress = calculateProgress(job);
-  job.updatedAt = new Date().toISOString();
-  
-  jobStore.set(jobId, job);
-  return job;
-};
-
-/**
- * Calculate job progress based on completed sections
- * @param {Object} job - The job object
- * @returns {number} - Progress percentage
- */
-const calculateProgress = (job) => {
-  const totalSections = SECTION_ORDER.length;
-  let completedWeight = 0;
-  let totalWeight = 0;
-  
-  SECTION_ORDER.forEach(sectionKey => {
-    const sectionConfig = SECTIONS[sectionKey];
-    totalWeight += sectionConfig.weight;
-    
-    if (job.sections[sectionKey].status === SECTION_STATUS.COMPLETED) {
-      completedWeight += sectionConfig.weight;
-    } else if (job.sections[sectionKey].status === SECTION_STATUS.GENERATING) {
-      completedWeight += sectionConfig.weight * 0.5; // Half credit for in-progress
-    }
-  });
-  
-  return Math.round((completedWeight / totalWeight) * 100);
 };
 
 /**
  * Update job context
- * @param {string} jobId - The job ID
- * @param {Object} context - New context data
- * @returns {Object|null} - Updated job or null
  */
 const updateContext = (jobId, context) => {
-  const job = jobStore.get(jobId);
-  if (!job) return null;
-  
-  job.context = context;
-  job.updatedAt = new Date().toISOString();
-  
-  jobStore.set(jobId, job);
-  return job;
+  const job = jobs.get(jobId);
+  if (job) {
+    job.context = context;
+    job.updatedAt = new Date().toISOString();
+  }
 };
 
 /**
- * Set final result for a job
- * @param {string} jobId - The job ID
- * @param {Object} result - The final assembled result
- * @returns {Object|null} - Updated job or null
+ * Update section status and data
  */
-const setResult = (jobId, result) => {
-  const job = jobStore.get(jobId);
-  if (!job) return null;
-  
-  job.result = result;
-  job.status = JOB_STATUS.COMPLETED;
-  job.progress = 100;
-  job.completedAt = new Date().toISOString();
-  job.updatedAt = job.completedAt;
-  
-  jobStore.set(jobId, job);
-  return job;
-};
-
-/**
- * Mark job as failed
- * @param {string} jobId - The job ID
- * @param {string} error - Error message
- * @returns {Object|null} - Updated job or null
- */
-const failJob = (jobId, error) => {
-  const job = jobStore.get(jobId);
-  if (!job) return null;
-  
-  job.status = JOB_STATUS.FAILED;
-  job.errors.push({
-    message: error,
-    timestamp: new Date().toISOString()
-  });
-  job.updatedAt = new Date().toISOString();
-  
-  jobStore.set(jobId, job);
-  return job;
+const updateSection = (jobId, sectionKey, status, data = null, error = null) => {
+  const job = jobs.get(jobId);
+  if (job) {
+    job.sections[sectionKey] = {
+      status,
+      data,
+      error,
+      timestamp: new Date().toISOString(),
+      retries: job.sections[sectionKey]?.retries || 0
+    };
+    job.updatedAt = new Date().toISOString();
+  }
 };
 
 /**
  * Add error to job
- * @param {string} jobId - The job ID
- * @param {string} sectionKey - The section that errored
- * @param {string} error - Error message
- * @returns {Object|null} - Updated job or null
  */
-const addError = (jobId, sectionKey, error) => {
-  const job = jobStore.get(jobId);
-  if (!job) return null;
-  
-  job.errors.push({
-    section: sectionKey,
-    message: error,
-    timestamp: new Date().toISOString()
-  });
-  job.updatedAt = new Date().toISOString();
-  
-  jobStore.set(jobId, job);
-  return job;
+const addError = (jobId, section, errorMessage) => {
+  const job = jobs.get(jobId);
+  if (job) {
+    if (!job.errorLog) {
+      job.errorLog = [];
+    }
+    job.errorLog.push({
+      timestamp: new Date().toISOString(),
+      section,
+      error: errorMessage
+    });
+  }
 };
 
 /**
- * Get job status summary for API response
- * @param {string} jobId - The job ID
- * @returns {Object|null} - Job status summary or null
+ * Set final result
  */
-const getJobStatus = (jobId) => {
-  const job = jobStore.get(jobId);
-  if (!job) return null;
-  
-  // Create sections summary
-  const sectionsSummary = {};
-  SECTION_ORDER.forEach(sectionKey => {
-    const section = job.sections[sectionKey];
-    sectionsSummary[sectionKey] = {
-      status: section.status,
-      timestamp: section.timestamp,
-      retries: section.retries
-    };
-  });
-  
-  return {
-    jobId: job.jobId,
-    status: job.status,
-    progress: job.progress,
-    currentSection: job.currentSection,
-    sections: sectionsSummary,
-    createdAt: job.createdAt,
-    updatedAt: job.updatedAt,
-    completedAt: job.completedAt,
-    errorCount: job.errors.length
-  };
+const setResult = (jobId, result) => {
+  const job = jobs.get(jobId);
+  if (job) {
+    job.result = result;
+    job.status = JOB_STATUS.COMPLETED;
+    job.progress = 100;
+    job.updatedAt = new Date().toISOString();
+  }
 };
 
 /**
- * Get all jobs (for debugging)
- * @returns {Array} - Array of all jobs
+ * Mark job as failed
  */
-const getAllJobs = () => {
-  return Array.from(jobStore.values());
+const failJob = (jobId, errorMessage) => {
+  const job = jobs.get(jobId);
+  if (job) {
+    job.status = JOB_STATUS.FAILED;
+    addError(jobId, 'general', errorMessage);
+    job.updatedAt = new Date().toISOString();
+  }
 };
 
 /**
- * Delete a job
- * @param {string} jobId - The job ID
- * @returns {boolean} - Whether deletion was successful
+ * Delete job from memory (after completion)
  */
 const deleteJob = (jobId) => {
-  return jobStore.delete(jobId);
+  jobs.delete(jobId);
 };
 
 /**
- * Validate input for job creation
- * @param {Object} input - Input to validate
- * @returns {Object} - Validation result
+ * Get final job state for return
  */
-const validateInput = (input) => {
-  const errors = [];
+const getFinalJobState = (jobId) => {
+  const job = jobs.get(jobId);
+  if (!job) return null;
   
-  if (!input.title || typeof input.title !== 'string' || input.title.trim().length === 0) {
-    errors.push('title is required and must be a non-empty string');
-  }
-  
-  if (input.image1 && typeof input.image1 !== 'string') {
-    errors.push('image1 must be a string URL');
-  }
-  
-  if (input.image2 && typeof input.image2 !== 'string') {
-    errors.push('image2 must be a string URL');
-  }
-  
-  if (input.featuredImage && typeof input.featuredImage !== 'string') {
-    errors.push('featuredImage must be a string URL');
-  }
-  
-  return {
-    valid: errors.length === 0,
-    errors
-  };
+  // Return job state and clean up
+  const jobState = { ...job };
+  jobs.delete(jobId); // Clean up from memory
+  return jobState;
 };
 
 module.exports = {
   createJob,
   getJob,
   updateJobStatus,
-  updateSection,
   updateContext,
+  updateSection,
+  addError,
   setResult,
   failJob,
-  addError,
-  getJobStatus,
-  getAllJobs,
   deleteJob,
-  validateInput,
-  generateJobId
+  getFinalJobState
 };

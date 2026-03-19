@@ -1,20 +1,25 @@
 /**
- * Recipe Generation Worker
- * Processes jobs from the queue
+ * Recipe Generation Worker - Queue-Only (No Database)
+ * Processes jobs from the queue, stores results in Redis via BullMQ
  */
+
+require('dotenv').config();
 
 const { Worker } = require('bullmq');
 const { redisConfig } = require('../config/queue');
 const { logger } = require('../config/logger');
-const { connectDatabase } = require('../config/database');
-const Job = require('../models/jobSchema');
+const { initializeGemini } = require('../services/geminiService');
 const generatorController = require('../controllers/generatorController');
+const jobModel = require('../models/jobModel');
 
-// Connect to database
-connectDatabase().catch(err => {
-  logger.error('Worker failed to connect to database:', err);
-  process.exit(1);
-});
+// Initialize AI (OpenRouter)
+logger.info('Initializing OpenRouter AI in worker...');
+const geminiInit = initializeGemini();
+if (!geminiInit) {
+  logger.warn('⚠️  AI not initialized. Check OPENROUTER_API_KEY in .env');
+} else {
+  logger.info('✅ OpenRouter AI initialized successfully');
+}
 
 /**
  * Worker for processing recipe generation jobs
@@ -22,34 +27,63 @@ connectDatabase().catch(err => {
 const recipeWorker = new Worker(
   'recipe-generation',
   async (job) => {
-    const { jobId } = job.data;
+    const { jobId, input, sections } = job.data;
     
     logger.info('Worker processing job', { jobId, attemptNumber: job.attemptsMade + 1 });
     
     try {
-      // Update job status in database
-      const dbJob = await Job.findOne({ jobId });
-      if (dbJob) {
-        dbJob.status = 'generating';
-        dbJob.metadata.startedAt = new Date();
-        dbJob.metadata.attemptNumber = job.attemptsMade + 1;
-        await dbJob.save();
-      }
+      // Create job in temporary memory for processing
+      jobModel.createJob({
+        jobId,
+        input,
+        sections,
+        status: 'generating',
+        context: {},
+        errorLog: []
+      });
+      
+      const startTime = Date.now();
       
       // Update progress callback
       const updateProgress = async (progress) => {
         await job.updateProgress(progress);
-        if (dbJob) {
-          await dbJob.updateProgress(progress);
-        }
+        // Update job data in queue
+        await job.updateData({
+          ...job.data,
+          progress,
+          status: 'generating',
+          metadata: {
+            ...job.data.metadata,
+            updatedAt: new Date().toISOString(),
+            lastProgress: progress
+          }
+        });
       };
       
-      // Process the job
+      // Process the job using existing generator controller
       await generatorController.startGeneration(jobId, updateProgress);
       
-      logger.info('Worker completed job', { jobId });
+      const processingTime = Date.now() - startTime;
       
-      return { success: true, jobId };
+      // Get final job state
+      const finalJob = jobModel.getFinalJobState(jobId);
+      
+      logger.info('Worker completed job', { jobId, processingTime });
+      
+      // Return result (BullMQ stores this in job.returnvalue)
+      return {
+        success: true,
+        jobId,
+        status: finalJob.status,
+        result: finalJob.result,
+        sections: finalJob.sections,
+        errorLog: finalJob.errorLog || [],
+        metadata: {
+          ...job.data.metadata,
+          completedAt: new Date().toISOString(),
+          processingTime
+        }
+      };
       
     } catch (error) {
       logger.error('Worker failed to process job', { 
@@ -58,11 +92,25 @@ const recipeWorker = new Worker(
         stack: error.stack
       });
       
-      // Update database with failure
-      const dbJob = await Job.findOne({ jobId });
-      if (dbJob) {
-        await dbJob.markFailed(error.message);
-      }
+      // Update job data with error
+      await job.updateData({
+        ...job.data,
+        status: 'failed',
+        errorLog: [
+          ...(job.data.errorLog || []),
+          {
+            timestamp: new Date().toISOString(),
+            error: error.message,
+            stack: error.stack,
+            attemptNumber: job.attemptsMade + 1
+          }
+        ],
+        metadata: {
+          ...job.data.metadata,
+          lastError: error.message,
+          failedAt: new Date().toISOString()
+        }
+      });
       
       throw error;
     }
@@ -98,27 +146,29 @@ recipeWorker.on('error', (err) => {
   logger.error('Worker error:', err);
 });
 
-recipeWorker.on('stalled', (jobId) => {
-  logger.warn('Job stalled', { jobId });
+recipeWorker.on('active', (job) => {
+  logger.info('Job active in worker', { jobId: job.id });
+});
+
+recipeWorker.on('progress', (job, progress) => {
+  logger.debug('Job progress', { jobId: job.id, progress });
 });
 
 // Graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, closing worker...');
+const gracefulShutdown = async (signal) => {
+  logger.info(`${signal} received. Stopping worker gracefully...`);
+  
   await recipeWorker.close();
+  
+  logger.info('Worker stopped');
   process.exit(0);
-});
+};
 
-process.on('SIGINT', async () => {
-  logger.info('SIGINT received, closing worker...');
-  await recipeWorker.close();
-  process.exit(0);
-});
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
-logger.info('🔧 Recipe generation worker started', {
-  concurrency: recipeWorker.opts.concurrency,
-  maxJobs: recipeWorker.opts.limiter.max,
-  duration: recipeWorker.opts.limiter.duration
-});
+logger.info('Recipe generation worker started');
+logger.info(`Concurrency: ${process.env.WORKER_CONCURRENCY || 2} jobs`);
+logger.info(`Rate limit: ${process.env.WORKER_MAX_JOBS || 10} jobs per ${(parseInt(process.env.WORKER_DURATION) || 60000) / 1000}s`);
 
 module.exports = recipeWorker;

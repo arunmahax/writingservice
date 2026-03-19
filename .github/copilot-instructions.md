@@ -1,16 +1,16 @@
 <!-- Custom instructions for the Recipe Article Generator project -->
 
 ## Project Overview
-This is a Recipe Article Generator API built with Node.js, Express, and Google Gemini AI.
+This is a Recipe Article Generator API built with Node.js, Express, and OpenRouter AI (Claude Sonnet).
 
 ## Key Technologies
 - Node.js with Express.js
-- Google Gemini AI (gemini-pro model)
-- In-memory job storage (Map)
+- OpenRouter AI (Claude Sonnet via OpenAI-compatible API)
+- BullMQ + Redis queue-based job storage
 
 ## Architecture
 - **Controllers**: Handle HTTP requests and responses
-- **Services**: Gemini API integration and prompt templates
+- **Services**: OpenRouter API integration and prompt templates
 - **Models**: Job structure and validation
 - **Utils**: Retry logic, SEO validation, context building
 - **Config**: Constants and configuration
@@ -34,4 +34,4 @@ Use Postman to test endpoints:
 - GET /api/job-result/:jobId - Get result
 
 ## Environment
-Set GEMINI_API_KEY in .env file before running.
+Set OPENROUTER_API_KEY in .env file before running.
